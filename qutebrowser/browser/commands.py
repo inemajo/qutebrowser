@@ -25,7 +25,7 @@ import functools
 from typing import cast, Callable, Dict, Union, Optional
 
 from qutebrowser.qt.widgets import QApplication, QTabBar
-from qutebrowser.qt.core import Qt, QUrl, QEvent, QUrlQuery
+from qutebrowser.qt.core import Qt, QUrl, QEvent, QUrlQuery, QTimer
 
 from qutebrowser.commands import userscripts, runners
 from qutebrowser.api import cmdutils
@@ -1769,7 +1769,8 @@ class CommandDispatcher:
             raise cmdutils.CommandError(str(e))
 
     @cmdutils.register(instance='command-dispatcher', scope='window')
-    def fake_key(self, keystring, global_=False):
+    @cmdutils.argument('press_time', value=None)
+    def fake_key(self, keystring, global_=False, press_time=None):
         """Send a fake keypress or key string to the website or qutebrowser.
 
         :fake-key xy - sends the keychain 'xy'
@@ -1785,6 +1786,12 @@ class CommandDispatcher:
         except keyutils.KeyParseError as e:
             raise cmdutils.CommandError(str(e))
 
+        if press_time is not None:
+            try:
+                press_time = int(press_time)
+            except ValueError as e:
+                raise cmdutils.CommandError(str(e))
+
         for keyinfo in sequence:
             press_event = keyinfo.to_event(QEvent.Type.KeyPress)
             release_event = keyinfo.to_event(QEvent.Type.KeyRelease)
@@ -1794,11 +1801,19 @@ class CommandDispatcher:
                 if window is None:
                     raise cmdutils.CommandError("No focused window!")
                 QApplication.postEvent(window, press_event)
-                QApplication.postEvent(window, release_event)
+                if press_time is None:
+                    QApplication.postEvent(window, release_event)
+                else:
+                    QTimer.singleShot(press_time, functools.partial(
+                        QApplication.postEvent, window, release_event))
             else:
                 tab = self._current_widget()
                 tab.send_event(press_event)
-                tab.send_event(release_event)
+                if press_time is None:
+                    tab.send_event(release_event)
+                else:
+                    QTimer.singleShot(press_time, functools.partial(
+                        tab.send_event, release_event))
 
     @cmdutils.register(instance='command-dispatcher', scope='window',
                        debug=True, backend=usertypes.Backend.QtWebKit)
